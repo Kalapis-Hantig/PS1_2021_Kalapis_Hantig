@@ -1,0 +1,116 @@
+#include <LiquidCrystal.h>
+const int rs = 12, en = 13 , d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+int buton1, Nbuton1, buton2, Nbuton2, buton3, Nbuton3, buton4, Nbuton4;
+float temperatura = 0, voltaj_tmp = 0,remaining=300;
+int Tset = 23;
+float Kp = 2, Ki = 0.5, Kd = 6;
+float eroare=0,suma_erori=0,eroare_anterioara=0,derivativa=0,output;
+int secunde,minute;
+void adc_init()//initializare convertor analog numeric
+{
+  ADCSRA |= ((1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0));
+  ADMUX |= (1 << REFS0);
+  ADCSRA |= (1 << ADEN);
+  ADCSRA |= (1 << ADSC);
+}
+uint16_t read_adc(uint8_t a)//citire convertor analog numeric
+{
+  ADMUX &= ((1 << 7) | (1 << 6) | (1 << 5) | (1 << 4));
+  ADMUX |= a;
+  ADCSRA |= (1 << ADSC);
+  while (ADCSRA & (1 << ADSC));
+  return ADCW;
+}
+void citire_temperatura()//functie care citeste temperatura senzorului LM36
+{
+  int reading;
+  reading = read_adc(0);
+  voltaj_tmp = reading * 5 ;
+  voltaj_tmp /= 1024;
+  voltaj_tmp = voltaj_tmp * 1000;
+  temperatura = voltaj_tmp / 10;
+  temperatura = temperatura - 50;
+}
+void setare_timer()//functie care seteaza timer pentru egalitate de comparatie la o secunda
+{
+  cli();
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCCR1C = 0;
+  //setare mod de operare
+  TCCR1B |= (1 << WGM12);
+  //setam valoare de intreerupere pentru egalitate
+  OCR1A = 15625;
+  //setare prescaler
+  TCCR1B &= ~((1 << CS11) | (1 << CS10));
+  TCCR1B |= (1 << CS12);
+  //setam intrerupere de egalitate la comparare
+  TIMSK1 = (1 << OCIE1A);
+  while (1)
+  {
+    buton2 = PIND & (1 << 7);//Cancel
+    if(buton2)
+    {
+      lcd.clear();
+      TIMSK1&= ~(1 << OCIE1A);
+      analogWrite(11,0);
+      break;
+    }
+    sei();
+  }
+}
+
+void setup() 
+{
+  lcd.begin(16, 2);
+  pinMode(11, OUTPUT);
+  Serial.begin(9600);
+}
+
+void loop()
+{
+  adc_init();
+  setare_timer();
+}
+void afisare_ceas_temperatura()//functie care afiseaza ceasul pe LCD
+{
+  minute=(int)remaining/60;
+  secunde=(int)remaining%60;
+  lcd.setCursor(11 , 0);
+  lcd.setCursor(11 , 0);
+  if (minute < 10)
+  {
+    lcd.print("0");
+  }
+  lcd.print(minute);
+  lcd.print(":");
+  if (secunde < 10)
+  {
+    lcd.print("0");
+  }
+  lcd.print(secunde);
+  lcd.setCursor(0 , 1);
+  lcd.print("Tset=");
+  lcd.print(Tset);
+  lcd.print(" T=");
+  lcd.print(temperatura, 1);
+}
+void regulator_PID()
+{
+  eroare=Tset-temperatura;
+  suma_erori+=eroare;
+  derivativa=eroare-eroare_anterioara;
+  output=(Kp*eroare)+(Ki*suma_erori)+(Kd*derivativa);
+  output=constrain(output,0,255);
+  eroare_anterioara=eroare;
+  //Serial.println(output);
+  analogWrite(11,output);
+}
+ISR(TIMER1_COMPA_vect)
+{
+  citire_temperatura();
+  regulator_PID();
+  afisare_ceas_temperatura();
+  Serial.println(temperatura);
+}
