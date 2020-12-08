@@ -1,0 +1,595 @@
+#include <EEPROM.h>
+#include <LiquidCrystal.h>
+const int rs = 12, en = 13 , d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+int buton1, Nbuton1, buton2, Nbuton2, buton3, Nbuton3, buton4, Nbuton4;
+float tincalzire = 40, tracire = 40, tmentinere = 200;
+int Tset = 35;
+float Kp = 2, Ki = 0.5, Kd = 6;
+int secunde,minute;
+int salvare=0;
+
+enum Meniuri
+{
+  Meniu_principal = 0,
+  Meniu_setare_temperatura,
+  Meniu_setare_timp,
+  Meniu_setare_PID,
+  Start
+};
+Meniuri meniu = Meniu_principal;
+
+enum Setare_timp
+{
+  setare_tincalzire=0,
+  setare_tracire,
+  setare_tmentinere
+};
+enum Setare_PID
+{
+  setare_Kp=0,
+  setare_Ki,
+  setare_Kd
+};
+
+Setare_timp settimp= setare_tincalzire;
+Setare_PID setpid=setare_Kp;
+void setarea_Tset();
+void meniu_de_setari_switch();
+void meniul_programului();
+void menu();
+void meniu_de_setari();
+void afisare_ceas();
+void afisare_pentru_start();
+void adc_init();
+uint16_t read_adc(uint8_t a);
+void citire_temperatura();
+void setare_timer();
+void afisarea_corespunzatoare_a_variabilelor_care_trb_setate();
+void butoane()//initializarea butoanelor
+{
+  buton1 = PIND & (1 << 6);//Ok
+  buton2 = PIND & (1 << 7);//Cances
+  buton3 = PINB & (1 << 0);//-
+  buton4 = PINB & (1 << 1);//+
+}
+void afisarea_modului_de_functionare_corespunzator()//functie care afiseaza modul de functionare in timpul selectiei
+{
+  if(meniu==Meniu_setare_PID)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("Modul Setare PID");
+    lcd.setCursor(0 , 1);
+    lcd.print("OK to start");
+  }
+  if(meniu==Meniu_setare_temperatura)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("Setare Temp");
+    lcd.setCursor(0 , 1);
+    lcd.print("OK to start");
+  }
+  if(meniu==Meniu_setare_timp)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("Setare Timp");
+    lcd.setCursor(0 , 1);
+    lcd.print("OK to start");
+  }
+  if(meniu==Meniu_principal)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("alegeti modul");
+    lcd.setCursor(0 , 1);
+    lcd.print("apasati + sau -");
+  }
+  if(meniu==Start)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("PORNIRE");
+    lcd.setCursor(0 , 1);
+    lcd.print("OK to start");
+  }
+}
+void start()
+{
+  lcd.clear();
+  while(!buton2)
+  {
+    butoane();
+    lcd.setCursor(0 , 1);
+    lcd.print("apasati cancel");
+  }
+  salvare=0;
+  EEPROM.put(salvare,Tset);
+  salvare+=sizeof(int);
+  EEPROM.put(salvare,tincalzire);
+  salvare+=sizeof(float);
+  EEPROM.put(salvare,tmentinere);
+  salvare+=sizeof(float);
+  EEPROM.put(salvare,tracire);
+  salvare+=sizeof(float);
+  EEPROM.put(salvare,Kp);
+  salvare+=sizeof(float);
+  EEPROM.put(salvare,Ki);
+  salvare+=sizeof(float);
+  EEPROM.put(salvare,Kd);
+}
+void meniul_programului()//functie care selecteaza modul de functionare a programului 
+{
+  while(!buton1)
+  {  
+    butoane();                 
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      meniu = (Meniuri) ((int)meniu + 1);
+      meniu = (Meniuri) ((int) meniu % 5);
+    }
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      meniu = (Meniuri) ((int)meniu - 1);
+      if(meniu<0)
+      {
+        meniu=(Meniuri)(4);
+      }
+      meniu = (Meniuri) ((int) meniu % 5);
+    }
+    Nbuton4 = buton4;
+    Nbuton3 = buton3;
+    afisarea_modului_de_functionare_corespunzator();
+    if(buton1)
+    {
+      Nbuton1=buton1;
+      if(meniu==Meniu_setare_temperatura)
+      {
+        setarea_Tset();
+      }
+      else
+        if(meniu==Start)
+      {
+        lcd.clear();
+        start();
+      }
+      else
+      {
+        meniu_de_setari();
+      }
+      meniul_programului();
+    }
+  }
+}
+void setarea_Tset()//functie pentru setarea Tset
+{
+  while(!buton1 || !buton2)
+  {
+    butoane();
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      Tset++;
+    }
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      Tset--;
+    }
+    Nbuton4 = buton4;
+    Nbuton3 = buton3;
+    lcd.setCursor(0, 0);
+    lcd.print("Setare Tset:    ");
+    lcd.setCursor(0, 1);
+    lcd.print("Tset=");
+    lcd.print(Tset);
+    lcd.print("               ");
+    if (buton2 )
+    {
+      lcd.clear();
+      Nbuton1=buton1;
+      meniul_programului();
+    }
+  }
+}
+void afisare_timpsetare(float t)//functie care afiseaza minutele si secundele in timpul setarii
+{
+  minute=(int)t/60;
+  secunde=(int)t%60;
+  if (minute < 10)
+  {
+    lcd.print("0");
+  }
+  lcd.print(minute);
+  lcd.print(":");
+  if (secunde < 10)
+  {
+    lcd.print("0");
+  }
+  lcd.print(secunde);
+  lcd.print("           ");
+}
+void setarea_tincalzire()//functie pentru setarea tincalzire
+{
+  while(!buton1 || !buton2)
+  {
+    butoane();
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      tincalzire+=10;
+    }
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      tincalzire-=10;
+    }
+    Nbuton4 = buton4;
+    Nbuton3 = buton3;
+    lcd.setCursor(0, 0);
+    lcd.print("Setare tincalzire:       "); 
+    lcd.setCursor(0 , 1);
+    afisare_timpsetare(tincalzire);
+    if ((buton1 && !Nbuton1) ||buton2 )
+    {
+      lcd.clear();
+      Nbuton1=buton1;
+      meniu_de_setari();
+    }
+    Nbuton1=buton1;
+  }
+}
+void setarea_tmentinere()//functie pentru setarea tmentinere
+{
+  while(!buton1 || !buton2)
+  {
+    butoane();
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      tmentinere+=10;
+    }
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      tmentinere-=10;
+    }
+    Nbuton4 = buton4;
+    Nbuton3 = buton3;
+    lcd.setCursor(0, 0);
+    lcd.print("Setare tmentinere:       "); 
+    lcd.setCursor(0 , 1);
+    afisare_timpsetare(tmentinere);
+    if ((buton1 && !Nbuton1) || buton2 )
+    {
+      lcd.clear();
+      Nbuton1=buton1;
+      meniu_de_setari();
+    }
+    Nbuton1=buton1;
+  }
+}
+void setarea_tracire()//functie pentru setarea tracire
+{
+  while(!buton1 || !buton2)
+  {
+    butoane();
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      tracire+=10;
+    }
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      tracire-=10;
+    }
+    Nbuton4 = buton4;
+    Nbuton3 = buton3;
+    lcd.setCursor(0, 0);
+    lcd.print("Setare tracire:          ");
+    lcd.setCursor(0 , 1);
+    afisare_timpsetare(tracire);
+    if ((buton1 && !Nbuton1) || buton2 )
+    {
+      lcd.clear();
+      Nbuton1=buton1;
+      meniu_de_setari();
+    }
+    Nbuton1=buton1;
+  }
+}
+void setarea_Kp()//functie pentru setarea Kp
+{
+  while(!buton1 || !buton2)
+  {
+    butoane();
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      Kp+=0.2;
+    }
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      Kp-=0.2;
+    }
+    Nbuton4 = buton4;
+    Nbuton3 = buton3;
+    lcd.setCursor(0, 0);
+    lcd.print("Setare Kp:              "); 
+    lcd.setCursor(0, 1);
+    lcd.print("Kp=");
+    lcd.print(Kp);
+    lcd.print("               ");
+    if ((buton1 && !Nbuton1) || buton2 )
+    {
+      lcd.clear();
+      Nbuton1=buton1;
+      meniu_de_setari();
+    }
+    Nbuton1=buton1;
+  }
+}
+void setarea_Ki()//functie pentru setarea Ki
+{
+  while(!buton1 || !buton2)
+  {
+    butoane();
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      Ki+=0.2;
+    }
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      Ki-=0.2;
+    }
+    Nbuton4 = buton4;
+    Nbuton3 = buton3;
+    lcd.setCursor(0, 0);
+    lcd.print("Setare Ki:          ");
+    lcd.setCursor(0, 1);
+    lcd.print("Ki=");
+    lcd.print(Ki);
+    lcd.print("               ");
+    if ((buton1 && !Nbuton1) || buton2 )
+    {
+      lcd.clear();
+      Nbuton1=buton1;
+      meniu_de_setari();
+    }
+    Nbuton1=buton1;
+  }
+}
+void setarea_Kd()//functie pentru setarea Kd
+{
+  while(!buton1 || !buton2)
+  {
+    butoane();
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      Kd+=0.2;
+    }
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      Kd-=0.2;
+    }
+    Nbuton4 = buton4;
+    Nbuton3 = buton3;
+    lcd.setCursor(0, 0);
+    lcd.print("Setare Kd:        ");
+    lcd.setCursor(0, 1);
+    lcd.print("Kd=");
+    lcd.print(Kd);
+    lcd.print("               ");
+    if ((buton1 && !Nbuton1) || buton2 )
+    {
+      lcd.clear();
+      Nbuton1=buton1;
+      meniu_de_setari();
+    }
+    Nbuton1=buton1;
+  }
+}
+void meniu_de_setari_switch_timp()//functie care intra in setarile corespunzatoare
+{
+  switch (settimp)
+  {
+    case setare_tincalzire:
+    setarea_tincalzire();
+    break;
+    case setare_tmentinere:
+    setarea_tmentinere();
+    break;
+    case setare_tracire:
+    setarea_tracire();
+    break;
+  }
+}
+void meniu_de_setari_switch_PID()//functie care intra in setarile corespunzatoare
+{
+  switch (setpid)
+  {
+    case setare_Kp:
+    setarea_Kp();
+    break;
+    case setare_Ki:
+    setarea_Ki();
+    break;
+    case setare_Kd:
+    setarea_Kd();
+    break;
+  }
+}
+void afisarea_corespunzatoare_timpsetare()//functie care afiseaza tipul de setare in timpul selectiei
+{
+  if(settimp==setare_tincalzire)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("setare timp");
+    lcd.setCursor(0 , 1);
+    lcd.print("tincalzire=");
+    afisare_timpsetare(tincalzire);
+    lcd.print("           ");
+  }
+  if(settimp==setare_tracire)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("setare timp");
+    lcd.setCursor(0 , 1);
+    lcd.print("tracire=");
+    afisare_timpsetare(tracire);
+    lcd.print("           ");
+  }
+  if(settimp==setare_tmentinere)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("setare timp");
+    lcd.setCursor(0 , 1);
+    lcd.print("tmentinere=");
+    afisare_timpsetare(tmentinere);
+    lcd.print("           ");
+  }
+}
+void afisarea_corespunzatoare_PIDsetare()//functie care afiseaza tipul de setare in timpul selectiei
+{
+  if(setpid==setare_Kp)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("setare PID");
+    lcd.setCursor(0 , 1);
+    lcd.print("kp=");
+    lcd.print(Kp);
+    lcd.print("                ");
+    lcd.print("             ");
+  }
+  if(setpid==setare_Ki)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("setare PID");
+    lcd.setCursor(0 , 1);
+    lcd.print("Ki=");
+    lcd.print(Ki);
+  }
+  if(setpid==setare_Kd)
+  {
+    lcd.setCursor(0 , 0);
+    lcd.print("setare PID");
+    lcd.setCursor(0 , 1);
+    lcd.print("Kd=");
+    lcd.print(Kd);
+  }
+}
+void meniu_de_setari()//meniu in care se alege variabila care se doreste a fi setata
+{
+ if(meniu==Meniu_setare_timp)
+ {
+  while(!buton1 || !buton2)
+  {
+    butoane();
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      settimp = (Setare_timp) ((int)settimp + 1);
+      settimp = (Setare_timp) ((int)settimp % 3);
+      Nbuton4 = buton4;
+    }
+      
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      settimp = (Setare_timp) ((int)settimp - 1);
+      if(settimp<0)
+      {
+        settimp=(Setare_timp)(2);
+      }
+      settimp = (Setare_timp) ((int)settimp % 3);
+      Nbuton3 = buton3;
+    }
+    Nbuton3=buton3;
+    Nbuton4=buton4;
+    afisarea_corespunzatoare_timpsetare();
+    if (buton1 && !Nbuton1)
+    {
+      lcd.clear();
+      Nbuton1=buton1;
+      meniu_de_setari_switch_timp();
+    }
+    if(buton2)
+    {
+      lcd.clear();
+      meniul_programului();
+    }
+    Nbuton1=buton1;
+  }
+ }
+
+ if(meniu==Meniu_setare_PID)
+ {
+  while(!buton1 || !buton2)
+  {
+    butoane();
+    if (buton4 && !(Nbuton4))
+    {
+      lcd.clear();
+      setpid = (Setare_PID) ((int)setpid + 1);
+      setpid = (Setare_PID) ((int)setpid % 3);
+      Nbuton4 = buton4;
+    }
+      
+    if (buton3 && !(Nbuton3))
+    {
+      lcd.clear();
+      setpid = (Setare_PID) ((int)setpid - 1);
+      if(setpid<0)
+      {
+        setpid=(Setare_PID)(2);
+      }
+      setpid = (Setare_PID) ((int)setpid % 3);
+      Nbuton3 = buton3;
+    }
+    Nbuton3=buton3;
+    Nbuton4=buton4;
+    afisarea_corespunzatoare_PIDsetare();
+    if (buton1 && !Nbuton1)
+    {
+      lcd.clear();
+      Nbuton1=buton1;
+      meniu_de_setari_switch_PID();
+    }
+    if(buton2)
+    {
+      lcd.clear();
+      meniul_programului();
+    }
+    Nbuton1=buton1;
+  }
+ }
+}
+void setup() 
+{
+  lcd.begin(16, 2);
+  salvare=0;
+  EEPROM.get(salvare,Tset);
+  salvare+=sizeof(int);
+  EEPROM.get(salvare,tincalzire);
+  salvare+=sizeof(float);
+  EEPROM.get(salvare,tmentinere);
+  salvare+=sizeof(float);
+  EEPROM.get(salvare,tracire);
+  salvare+=sizeof(float);
+  EEPROM.get(salvare,Kp);
+  salvare+=sizeof(float);
+  EEPROM.get(salvare,Ki);
+  salvare+=sizeof(float);
+  EEPROM.get(salvare,Kd);
+}
+
+void loop()
+{
+  butoane();
+  meniul_programului();
+}
